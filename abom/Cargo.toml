@@ -1,0 +1,11 @@
+[package]
+name = "abom"
+version = "0.1.0"
+authors = ["comex <comexk@gmail.com>"]
+
+[dependencies]
+abomonation = "0.7.0"
+memmap = "0.7.0"
+
+[profile.release]
+debug = true

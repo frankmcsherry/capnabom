@@ -1,0 +1,22 @@
+[package]
+name = "capn"
+version = "0.1.0"
+authors = ["comex <comexk@gmail.com>"]
+build = "build.rs"
+
+
+[dependencies]
+#capnp = "0.9"
+memmap = "0.7.0"
+
+[build-dependencies]
+#capnpc = "0.9"
+
+[dependencies.capnp]
+path = "/usr/src/capnproto-rust/capnp"
+[build-dependencies.capnpc]
+path = "/usr/src/capnproto-rust/capnpc"
+
+
+[profile.release]
+debug = true

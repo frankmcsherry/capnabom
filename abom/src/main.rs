@@ -19,10 +19,20 @@ pub fn encode_abom(in_filename: &str, out_filename: &str) {
     unsafe { abomonation::encode(&lines, &mut BufWriter::new(out_file)).unwrap(); }
 }
 
+pub fn encode_abom_lean(lines: &Vec<String>, bytes: &mut Vec<u8>) {
+    unsafe { abomonation::encode(lines, bytes).unwrap(); }
+}
+
 fn decode_abom<R>(in_filename: &str, then: impl FnOnce(&Vec<String>) -> R) -> R {
     let in_file = File::open(in_filename).unwrap();
     let mut mmap = unsafe { memmap::MmapOptions::new().map_copy(&in_file).unwrap() };
     let (result, remaining) = unsafe { abomonation::decode::<Vec<String>>(&mut mmap[..]).unwrap() };
+    assert_eq!(remaining.len(), 0);
+    then(result)
+}
+
+fn decode_abom_lean<R>(bytes: &mut [u8], then: impl FnOnce(&Vec<String>) -> R) -> R {
+    let (result, remaining) = unsafe { abomonation::decode::<Vec<String>>(bytes).unwrap() };
     assert_eq!(remaining.len(), 0);
     then(result)
 }
@@ -95,6 +105,24 @@ mod tests {
     }
 
     #[bench]
+    fn bench_encode_lean(b: &mut Bencher) {
+
+        let mut lines: Vec<String> = Vec::new();
+        let in_file = File::open("/tmp/manywords").unwrap();
+        for line in BufReader::new(in_file).lines() {
+            lines.push(line.unwrap());
+        }
+        let mut buffer = Vec::new();
+
+        b.iter(|| {
+            buffer.clear();
+            unsafe { abomonation::encode(&lines, &mut buffer).unwrap(); }
+        });
+
+    }
+
+
+    #[bench]
     fn bench_decode_10000th(b: &mut Bencher) {
         b.iter(|| decode_abom_and_get_nth_byte_sum("/tmp/manywords-encoded-abom", 10000))
     }
@@ -102,6 +130,47 @@ mod tests {
     #[bench]
     fn bench_decode_all(b: &mut Bencher) {
         b.iter(|| decode_abom_and_get_all_byte_sum("/tmp/manywords-encoded-abom"))
+    }
+
+    #[bench]
+    fn bench_decode_all_lean(b: &mut Bencher) {
+
+        let mut lines: Vec<String> = Vec::new();
+        let in_file = File::open("/tmp/manywords").unwrap();
+        for line in BufReader::new(in_file).lines() {
+            lines.push(line.unwrap());
+        }
+        let mut buffer = Vec::new();
+        encode_abom_lean(&lines, &mut buffer);
+
+        b.iter(|| {
+            decode_abom_lean(&mut buffer, |words| {
+                let mut res: u32 = 0;
+                for word in words {
+                    //test::black_box(word);
+                    res = res.wrapping_add(byte_sum(word));
+                }
+                res
+            })
+        });
+    }
+
+    #[bench]
+    fn bench_decode_10000th_lean(b: &mut Bencher) {
+
+        let mut lines: Vec<String> = Vec::new();
+        let in_file = File::open("/tmp/manywords").unwrap();
+        for line in BufReader::new(in_file).lines() {
+            lines.push(line.unwrap());
+        }
+        let mut buffer = Vec::new();
+        encode_abom_lean(&lines, &mut buffer);
+
+        b.iter(|| {
+            decode_abom_lean(&mut buffer, |words| {
+                byte_sum(&words[10000])
+            })
+        });
     }
 }
 

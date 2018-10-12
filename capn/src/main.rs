@@ -31,11 +31,33 @@ pub fn encode_capn(in_filename: &str, out_filename: &str) {
     capnp::serialize::write_message(&mut BufWriter::new(out_file), &builder).unwrap();
 }
 
+pub fn encode_capn_lean(lines: &Vec<String>, bytes: &mut Vec<u8>) {
+    let mut builder = capnp::message::Builder::new_default();
+    {
+        let msg = builder.init_root::<foo_capnp::dictionary::Builder>();
+        let mut words = msg.init_words(lines.len() as u32);
+        for (i, line) in lines.iter().enumerate() {
+            words.set(i as u32, line);
+        }
+    }
+    capnp::serialize::write_message(bytes, &builder).unwrap();
+}
+
 fn decode_capn<R>(in_filename: &str, then: impl FnOnce(capnp::text_list::Reader) -> R) -> R {
     let in_file = File::open(in_filename).unwrap();
     let mmap = unsafe { memmap::Mmap::map(&in_file).unwrap() };
     let reader = capnp::serialize::read_message_from_words(
         unsafe { capnp::Word::bytes_to_words(&mmap[..]) },
+        *capnp::message::ReaderOptions::new().traversal_limit_in_words(1000000000)
+    ).unwrap();
+    let msg = reader.get_root::<foo_capnp::dictionary::Reader>().unwrap();
+    let words = msg.get_words().unwrap();
+    then(words)
+}
+
+fn decode_capn_lean<R>(bytes: &mut [u8], then: impl FnOnce(capnp::text_list::Reader) -> R) -> R {
+    let reader = capnp::serialize::read_message_from_words(
+        unsafe { capnp::Word::bytes_to_words(bytes) },
         *capnp::message::ReaderOptions::new().traversal_limit_in_words(1000000000)
     ).unwrap();
     let msg = reader.get_root::<foo_capnp::dictionary::Reader>().unwrap();
@@ -127,6 +149,58 @@ mod tests {
     #[bench]
     fn bench_decode_all(b: &mut Bencher) {
         b.iter(|| decode_capn_and_get_all_byte_sum("/tmp/manywords-encoded-capn"))
+    }
+
+    #[bench]
+    fn bench_encode_lean(b: &mut Bencher) {
+        let mut lines: Vec<String> = Vec::new();
+        let in_file = File::open("/tmp/manywords").unwrap();
+        for line in BufReader::new(in_file).lines() {
+            lines.push(line.unwrap());
+        }
+        let mut buffer = Vec::new();
+        b.iter(|| {
+            buffer.clear();
+            encode_capn_lean(&lines, &mut buffer);
+        });
+    }
+
+    #[bench]
+    fn bench_decode_10000th_lean(b: &mut Bencher) {
+        let mut lines: Vec<String> = Vec::new();
+        let in_file = File::open("/tmp/manywords").unwrap();
+        for line in BufReader::new(in_file).lines() {
+            lines.push(line.unwrap());
+        }
+        let mut buffer = Vec::new();
+        encode_capn_lean(&lines, &mut buffer);
+
+        b.iter(|| {
+            decode_capn_lean(&mut buffer, |words| byte_sum(words.get(10000).unwrap()))
+        });
+    }
+
+    #[bench]
+    fn bench_decode_all_lean(b: &mut Bencher) {
+        let mut lines: Vec<String> = Vec::new();
+        let in_file = File::open("/tmp/manywords").unwrap();
+        for line in BufReader::new(in_file).lines() {
+            lines.push(line.unwrap());
+        }
+        let mut buffer = Vec::new();
+        encode_capn_lean(&lines, &mut buffer);
+
+        b.iter(|| {
+            decode_capn_lean(&mut buffer, |words| {
+                let mut res: u32 = 0;
+                for word in words {
+                    let word = word.unwrap();
+                    res = res.wrapping_add(byte_sum(word));
+                    //test::black_box(word);
+                }
+                res
+            })
+        });
     }
 }
 

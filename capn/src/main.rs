@@ -1,4 +1,5 @@
-#![feature(test)]
+#![feature(test, duration_float)]
+extern crate test;
 extern crate capnp;
 pub mod foo_capnp {
     include!(concat!(env!("OUT_DIR"), "/foo_capnp.rs"));
@@ -8,6 +9,7 @@ extern crate memmap;
 use std::fs::File;
 use std::io::{BufReader, BufRead, BufWriter};
 use std::env;
+use std::time::Instant;
 
 pub fn encode_capn(in_filename: &str, out_filename: &str) {
     // Can't encode direclty into capnproto because we don't know the size in advance, so use an
@@ -62,9 +64,36 @@ pub fn decode_capn_and_get_all_byte_sum(in_filename: &str) -> u32 {
         for word in words {
             let word = word.unwrap();
             res = res.wrapping_add(byte_sum(word));
+            //test::black_box(word);
         }
         res
     })
+}
+
+pub fn test_encode_pure(in_filename: &str) {
+    let mut lines: Vec<String> = Vec::new();
+    let in_file = File::open("/tmp/manywords").unwrap();
+    for line in BufReader::new(in_file).lines() {
+        lines.push(line.unwrap());
+    }
+    // since cargo bench wants to run 300 times which is way too slow
+    let start = Instant::now();
+    for _ in 0..10 {
+        let mut builder = capnp::message::Builder::new_default();
+        {
+            let msg = builder.init_root::<foo_capnp::dictionary::Builder>();
+            let mut words = msg.init_words(lines.len() as u32);
+            for (i, line) in lines.iter().enumerate() {
+                words.set(i as u32, line);
+            }
+        }
+        //let mut out: Vec<u8> = Vec::new();
+        let out_file = File::create("/dev/null").unwrap();
+        let mut out = BufWriter::new(out_file);
+        capnp::serialize::write_message(&mut out, &builder).unwrap();
+        test::black_box(&out);
+    }
+    println!("{}", start.elapsed().as_float_secs());
 }
 
 fn main() {
@@ -74,6 +103,7 @@ fn main() {
         "encode" => encode_capn(&in_filename, &env::args().nth(3).unwrap()),
         "decode-nth" => println!("{}", decode_capn_and_get_nth_byte_sum(&in_filename, env::args().nth(3).unwrap().parse::<usize>().unwrap())),
         "decode-all" => println!("{}", decode_capn_and_get_all_byte_sum(&in_filename)),
+        "encode-pure" => test_encode_pure(&in_filename),
         _ => panic!("?")
     }
 }
